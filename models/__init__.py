@@ -5,5 +5,5 @@ from .post import Post
 from .security_event import SecurityEvent
 from .blocked_ip import BlockedIP
 from .incident import Incident
-
-__all__ = ['User', 'Post', 'SecurityEvent', 'BlockedIP', 'Incident', 'ROLE_LEVEL', 'ROLE_LABEL']
+from .honeytoken import Honeytoken
+__all__ = ['User', 'Post', 'SecurityEvent', 'BlockedIP', 'Incident', 'Honeytoken', 'ROLE_LEVEL', 'ROLE_LABEL']
