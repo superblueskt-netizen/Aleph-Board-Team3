@@ -2,13 +2,14 @@
 import json
 import socket
 import time
+from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from extensions import client_ip, db
-from models import User
+from models import Honeytoken, User
 
 from .seclog import write_seclog
 
@@ -39,6 +40,16 @@ def _report_login_failure_to_graylog(username, ip, locked=False):
         pass
 
 
+def _handle_honeytoken_hit(token, ip):
+    """시나리오1: 미끼 계정 사용 감지. 처음 쓰인 거라면 '사용됨'으로 표시한다.
+    정상 사용자는 절대 쓰지 않는 계정이라, 1회만으로 침입 확정."""
+    if token.status == 'active':
+        token.status = 'used'
+        token.used_at = datetime.now()
+        token.used_by_ip = ip
+        db.session.commit()
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -56,6 +67,12 @@ def register():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
+    # ── 시나리오1: 미끼 계정이면 탐지 후 평범한 실패로 위장 ──
+    token = Honeytoken.query.filter_by(
+        token_value=data.get('username', ''), token_type='account').first()
+    if token:
+        _handle_honeytoken_hit(token, client_ip())
+        return jsonify({"msg": "아이디 또는 비밀번호가 잘못되었습니다."}), 401
     user = User.query.filter_by(username=data['username']).first()
     if user and user.locked:
         _report_login_failure_to_graylog(data.get('username', ''), client_ip(), locked=True)
