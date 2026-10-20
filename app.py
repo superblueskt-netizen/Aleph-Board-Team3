@@ -144,9 +144,39 @@ def create_app(config_class=Config):
         db.session.commit()
         click.echo(f'{username} 를 admin 으로 설정했습니다.')
 
+    @app.cli.command('seed-honeytoken')
+    @click.argument('token_id')
+    @click.argument('username')
+    def seed_honeytoken(token_id, username):
+        """미끼 계정을 users 표에 심고 honeytokens 표에 등록한다.
+        사용법: flask --app app.py seed-honeytoken HT-001 backup_admin"""
+        import secrets
+
+        from werkzeug.security import generate_password_hash
+
+        from models import Honeytoken, User
+
+        # 같은 미끼를 두 번 심지 않게
+        if db.session.get(Honeytoken, token_id) or Honeytoken.query.filter_by(token_value=username).first():
+            click.echo(f'{token_id} 또는 {username} 은(는) 이미 등록된 허니토큰입니다.')
+            return
+        # 진짜 사용자 계정을 미끼로 덮어쓰지 않게
+        if User.query.filter_by(username=username).first():
+            click.echo(f'{username} 은(는) 이미 있는 실제 계정입니다. 다른 이름을 쓰세요.')
+            return
+
+        decoy = User(username=username,
+                     password=generate_password_hash(secrets.token_hex(16)),  # 아무도 모르는 랜덤 비밀번호
+                     role='user')
+        token = Honeytoken(token_id=token_id, token_type='account',
+                           token_value=username, placement='users_table')
+        db.session.add_all([decoy, token])
+        db.session.commit()
+        click.echo(f'{token_id}: 미끼 계정 {username} 을(를) 심었습니다.')
+        
     return app
 
-
+    
 app = create_app()
 
 if __name__ == '__main__':
