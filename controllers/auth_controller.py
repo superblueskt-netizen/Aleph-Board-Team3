@@ -11,8 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from extensions import client_ip, db
 from models import Honeytoken, User
 
-from .seclog import write_seclog
-
+from .seclog import write_honeytoken_log, write_seclog
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 
@@ -40,9 +39,37 @@ def _report_login_failure_to_graylog(username, ip, locked=False):
         pass
 
 
+def _report_honeytoken_to_graylog(token, ip):
+    """시나리오1: 미끼 사용을 GELF로 Graylog에 즉시 신고 — 1회만으로 CRITICAL(n8n 자동 대응 트리거)."""
+    payload = {
+        'version': '1.1',
+        'host': socket.gethostname(),
+        'short_message': f"honeytoken used: {token.token_id} ('{token.token_value}') from {ip}",
+        'timestamp': time.time(),
+        'level': 2,
+        '_rule': 'honeytoken',
+        '_token_id': token.token_id,
+        '_username': token.token_value,
+        '_placement': token.placement,
+        '_src_ip': ip,
+    }
+    data = json.dumps(payload).encode('utf-8')
+    host = current_app.config.get('GRAYLOG_HOST', 'localhost')
+    port = current_app.config.get('GRAYLOG_GELF_PORT', 12201)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(data, (host, port))
+    except OSError:
+        pass
+
+
 def _handle_honeytoken_hit(token, ip):
     """시나리오1: 미끼 계정 사용 감지. 처음 쓰인 거라면 '사용됨'으로 표시한다.
     정상 사용자는 절대 쓰지 않는 계정이라, 1회만으로 침입 확정."""
+    # 신고는 매번 — 몇 번 시도했는지도 증거가 된다
+    write_honeytoken_log(token.token_id, token.token_value, ip)
+    _report_honeytoken_to_graylog(token, ip)
+    # '사용됨' 표시는 처음 한 번만 — 첫 사용 시각·IP를 지킨다
     if token.status == 'active':
         token.status = 'used'
         token.used_at = datetime.now()

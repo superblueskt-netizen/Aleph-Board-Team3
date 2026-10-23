@@ -41,3 +41,20 @@ def write_404log(src_ip, path):
       f.write(line)
   except OSError:
     pass
+
+
+def write_honeytoken_log(token_id, user, src_ip):
+  """시나리오1: 미끼(허니토큰) 사용 기록 — Wazuh 커스텀 룰이 이 줄을 1회만 봐도 CRITICAL."""
+  path = current_app.config.get('SECURITY_LOG_PATH')
+  if not path:
+    return
+  first_hop = str(src_ip or '').split(',')[0].strip()
+  now = datetime.now()
+  stamp = now.strftime('%Y-%m-%d %H:%M:%S.') + f'{now.microsecond // 1000:03d}'
+  line = f'{stamp} honeytoken_used token_id={_clean(token_id, 20)} user={_clean(user)} src_ip={_clean(first_hop, 45)}\n'
+  try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a', encoding='utf-8') as f:
+      f.write(line)
+  except OSError:
+    pass
